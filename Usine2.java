@@ -1,3 +1,9 @@
+//@predicate estEmbauche(Usine usine, Travailleur travailleur) = true;
+//@predicate peutEtreEffectuee(Tache tache) = true;
+
+
+
+
 /*@predicate tache(Tache tache; int temps_necessaire, int gain) =
 	tache.temps_necessaire |-> temps_necessaire &*&
 	tache.gain |-> gain &*&
@@ -9,10 +15,11 @@ class Tache {
 	
 	public Tache(int temps_necessaire, int gain)
 	//@requires temps_necessaire >= 0 && gain >= 0;
-	//@ensures tache(this, temps_necessaire, gain);
+	//@ensures tache(this, temps_necessaire, gain) &*& peutEtreEffectuee(this);
 	{
 		this.temps_necessaire = temps_necessaire;
 		this.gain = gain;
+		//@close peutEtreEffectuee(this);
 	}
 	
 	public int get_temps_necessaire()
@@ -126,6 +133,14 @@ class Usine {
         return this.gain_accumule;
     }
 
+	public int get_balance()
+	//@requires usine(this, ?ds, ?ga);
+    	//@ensures usine(this, ds, ga) &*& result == ga-ds;
+	{
+		return (this.gain_accumule - this.depense_salaire);
+	}
+	
+	
     public void payer_employer(int montant)
     //@requires usine(this, ?ds, ?ga);
     //@ensures usine(this, ds+montant, ga);
@@ -153,10 +168,21 @@ class Usine {
     }    
     
     public void effectueTache(Tache tache, Travailleur travailleur)
-    //@requires usine(this, ?ds, ?ga) &*& tache(tache, ?tn, ?g) &*& travailleur(travailleur, ?td, ?sh, ?sp);
-    /*@ensures ((td>=tn) && (g-tn*sh>0)) ? (usine(this, ds+tn*sh, ga+g) &*& travailleur(travailleur, td-tn, sh, sp+tn*sh))
-					 : (usine(this, ds, ga) &*& travailleur(travailleur,td,sh,sp) &*& tache(tache,tn,g));
-    @*/
+    /*@requires usine(this, ?ds, ?ga) &*&
+    		tache(tache, ?tn, ?g) &*&
+    		travailleur(travailleur, ?td, ?sh, ?sp) &*&
+    		estEmbauche(this, travailleur) &*&
+    		peutEtreEffectuee(tache) &*&
+    		td > 0; @*/
+    /*@ensures ((td>=tn) && (g-tn*sh>0)) ? usine(this, ds+tn*sh, ga+g) &*&
+    						travailleur(travailleur, td-tn, sh, sp+tn*sh) &*&
+    						tache(tache,tn,g) &*&
+    						estEmbauche(this, travailleur)
+					 : usine(this, ds, ga) &*&
+					 	travailleur(travailleur,td,sh,sp) &*&
+					 	tache(tache,tn,g) &*&
+					 	estEmbauche(this, travailleur) &*&
+					 	peutEtreEffectuee(tache);@*/
     {   
     	//@open tache(tache, tn, g);
     	//@open travailleur(travailleur, td, sh, sp); 
@@ -167,9 +193,28 @@ class Usine {
         if(temps_dispo-temps_nece >=0 && est_rentable(tache,travailleur))
         {
             recette(tache.get_gain());
-            payer_employer(travailleur.travailler(temps_nece));          
+            payer_employer(travailleur.travailler(temps_nece));
+            //@open peutEtreEffectuee(tache);
         }
+
     }
+   
+    
+    
+    
+	public void embaucher(Travailleur travailleur)
+	/*@requires travailleur(travailleur, ?temps_dispo, ?salaire_horaire, ?salaire_percu); @*/
+	/*@ensures travailleur(travailleur, temps_dispo, salaire_horaire, salaire_percu) &*& estEmbauche(this,travailleur); @*/
+	{
+		//@close estEmbauche(this, travailleur);
+	}
+	
+	public void licencier(Travailleur travailleur)
+	/*@requires travailleur(travailleur, ?temps_dispo, ?salaire_horaire, ?salaire_percu) &*& estEmbauche(this,travailleur); @*/
+	/*@ensures travailleur(travailleur, temps_dispo, salaire_horaire, salaire_percu); @*/
+	{
+		//@open estEmbauche(this, travailleur);
+	}
     
 }
 
@@ -187,6 +232,10 @@ class UsineTest {
 		
 		int gain = tache.get_gain();
 		assert gain == 50;
+		
+		
+		
+		
 		
 		//Test de travailleur
 		Travailleur travailleur  = new Travailleur(35,15);
@@ -209,6 +258,10 @@ class UsineTest {
 		temps_dispo = travailleur.get_temps_dispo();
 		assert temps_dispo == 25;
 		
+		
+		
+		
+		
 		//Test de usine
 		Usine usine = new Usine();
 		
@@ -226,6 +279,10 @@ class UsineTest {
 		depense_salaire = usine.get_depense_salaire();
 		assert depense_salaire == 100;
 		
+		int balance = usine.get_balance();
+		assert balance == 0;
+		
+		usine.embaucher(travailleur);
 		usine.effectueTache(tache, travailleur);
 		
 		temps_dispo = travailleur.get_temps_dispo();
@@ -240,18 +297,25 @@ class UsineTest {
 		depense_salaire = usine.get_depense_salaire();
 		assert depense_salaire == 130;
 		
-		//TEST BIS
-		/*Travailleur idiot = new Travailleur(-35,15);
-		int temps_dispo = travailleur.get_temps_dispo();
-		assert temps_dispo == -35;
-		*/
 		
-		//TESTS QUESTION 14
+		//TESTS QUESTION 14 ET 15
 		Tache film = new Tache(10,1000);
 		Travailleur walt = new Travailleur(35,10);
 		Usine disney = new Usine();
-		disney.effectueTache(film, walt);
-//		disney.effectueTache(film, walt);
+		disney.embaucher(walt);
+		disney.effectueTache(film, walt); //EffectueTache ne marche bien pas si l'on ne met en disney.embaucher(walt)
+		//disney.effectueTache(film, walt); //Si on retente d'effectuer la tâche film, on a bien aucune correspondance pour le prédicat peutEtreEffectuee(film)
+		
+		//Test question 16
+		Tache film_animation = new Tache(10,900);
+		//disney.licencier(walt);
+		disney.effectueTache(film_animation, walt); //Si l'on licencie walt (ligne commentée en haut), l'on a bien aucune correspondance pour le prédicat estEmbauche(disney,walt)
+		
+		//Test question 17
+		Tache film_blockBuster = new Tache(10, 5000);
+		Travailleur michel_baie = new Travailleur(0,20);
+		disney.embaucher(michel_baie);
+		//disney.effectueTache(film_blockBuster, michel_baie); //Comme prévue, cette tâche ne peut pas être effectuée car michelBaie car il a 0 en temps_dispo
 		
 	}
 }
