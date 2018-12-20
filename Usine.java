@@ -33,7 +33,7 @@ class Tache {
 /*@predicate travailleur(Travailleur travailleur; int temps_dispo, int salaire_horaire, int salaire_percu) = 
 	travailleur.temps_dispo |-> temps_dispo &*&
 	travailleur.salaire_horaire |-> salaire_horaire &*&
-	travailleur.salaire_percu |-> salaire_percu;
+	travailleur.salaire_percu |-> salaire_percu &*& temps_dispo>=0;
 @*/
 class Travailleur {
 	private int temps_dispo;
@@ -43,7 +43,7 @@ class Travailleur {
 	//private int temps_travail; //TODO : question 6
 	
 	public Travailleur(int temps_dispo, int salaire_horaire)
-	//@requires salaire_horaire >= 0;
+	//@requires salaire_horaire >= 0 && temps_dispo>=0;
 	//@ensures travailleur(this, temps_dispo, salaire_horaire, 0);
 	{
 		this.temps_dispo = temps_dispo;
@@ -74,19 +74,18 @@ class Travailleur {
 	
 	public int travailler(int t)
 	//@requires travailleur(this, ?td, ?sh, ?sp) &*& t >= 0;
-	//@ensures travailleur(this, td, sh, sp+sh*t) &*& result == sh*t;
+	/*@ensures td >= t ? travailleur(this, td-t, sh, sp+result) &*& result == sh*t
+			   : travailleur(this,td,sh,sp+result) &*& result == 0;
+	@*/
 	{
-		this.salaire_percu = this.salaire_percu + (this.salaire_horaire*t);
-		return (this.salaire_horaire*t);
+		int salaire = 0;
+		if (this.temps_dispo >= t) {
+			this.temps_dispo = this.temps_dispo - t;
+			salaire = this.salaire_horaire * t;
+			this.salaire_percu = this.salaire_percu + salaire;
+		}
+		return salaire;
 	}
-	
-	public void setTempsDispo(int t)
-	//@requires travailleur(this, ?td, ?sh, ?sp);
-	//@ensures travailleur(this, t, sh, sp);
-	{
-		this.temps_dispo = t;
-	}
-	  
 }
 
 
@@ -97,46 +96,58 @@ class Usine {
     private int balance;
     
     public Usine(int depot_initial)
-    //@requires depot_initial >= 0;
+    //@requires true;
     //@ensures usine(this, depot_initial);
     {
         this.balance = depot_initial;
     }
     
     public int get_balance()
-    //@requires usine(this, ?di);
-    //@ensures usine(this, di) &*& result == di;
+    //@requires usine(this, ?b);
+    //@ensures usine(this, b) &*& result == b;
     {
         return this.balance;
     }
     
     public void depose_argent(int argent)
-    //@requires usine(this, ?di);
-    //@ensures usine(this, di+argent);
+    //@requires usine(this, ?b);
+    //@ensures usine(this, b+argent);
     {
-        this.balance += argent;
+        this.balance = this.balance + argent;
     }
     
-    public boolean effectueTache(Tache tache, Travailleur travailleur)
-    //@requires tache(tache, ?n, ?g) &*& travailleur(travailleur, ?td, ?sh, ?sp) &*& usine(this, ?di);
-    //@ensures true;
+    public void effectueTache(Tache tache, Travailleur travailleur)
+    /*@requires usine(this, ?b) &*& tache(tache, ?tn, ?g) &*& travailleur(travailleur, ?td, ?sh, ?sp);
+    @*/
+    /*@ensures ((td>=tn) && (g-tn*sh>0)) ? (usine(this, b+g-tn*sh) &*& travailleur(travailleur, td-tn, sh, sp+tn*sh))
+			: (usine(this, b) &*& travailleur(travailleur,td,sh,sp) &*& tache(tache,tn,g));
+    @*/
     {   
-    	//@open tache(tache, n, g);
+    	//@open tache(tache, tn, g);
     	//@open travailleur(travailleur, td, sh, sp); 
         int temps_dispo = travailleur.get_temps_dispo();
         int temps_nece = tache.get_temps_necessaire();
         
-        if(temps_dispo-temps_nece >=0) //Si il reste suffisamment de temps disponible pour que le travailleur travaille sur sa tache
+        //Si il reste suffisamment de temps disponible pour que le travailleur travaille sur sa tache
+        if(temps_dispo-temps_nece >=0 && est_rentable(tache,travailleur))
         {
-            depose_argent(tache.get_gain());
-            depose_argent(-(travailleur.travailler(tache.get_temps_necessaire())));
-            
-            travailleur.setTempsDispo(temps_dispo - temps_nece);
-            return true;
-            
-        } else {
-            return false;
+            int benefice = tache.get_gain();
+            int perte = travailleur.travailler(temps_nece);
+            depose_argent(benefice-perte);            
         }
+    }
+
+    public static boolean est_rentable(Tache tache, Travailleur travailleur)
+    //@requires tache(tache, ?tn, ?g) &*& travailleur(travailleur, ?td, ?sh, ?sp);
+    /*@ensures result == (g-tn*sh>0) &*& tache(tache,tn,g) &*& travailleur(travailleur,td,sh,sp);
+    @*/
+    {
+    	//@open tache(tache, _, _);
+    	//@open travailleur(travailleur, _, _, _);
+    	int temps_nece = tache.get_temps_necessaire();
+    	int gain = tache.get_gain();
+    	int cout_salarial = travailleur.get_salaire_horaire() * temps_nece;
+    	return (gain - cout_salarial > 0);
     }
     
 }
@@ -148,31 +159,67 @@ class UsineTest {
 	//@requires true;
 	//@ensures true;
 	{
-		Tache tache = new Tache(2,50);
-		Travailleur travailleur  = new Travailleur(35,15);
-		Usine usine = new Usine(50);
-		
 		//Test de tache
+		Tache tache = new Tache(2,50);
+		
 		int temps_necessaire = tache.get_temps_necessaire();
 		assert temps_necessaire == 2;
+		
 		int gain = tache.get_gain();
 		assert gain == 50;
 		
 		//Test de travailleur
+		Travailleur travailleur  = new Travailleur(35,15);
+		
 		int temps_dispo = travailleur.get_temps_dispo();
 		assert temps_dispo == 35;
+		
 		int salaire_horaire = travailleur.get_salaire_horaire();
 		assert salaire_horaire == 15;
+		
 		int salaire_percu = travailleur.get_salaire_percu();
 		assert salaire_percu == 0;
 		
 		int travail = travailleur.travailler(10);
 		assert travail == 150;
+		
 		salaire_percu = travailleur.get_salaire_percu();
 		assert salaire_percu == 150;
 		
+		temps_dispo = travailleur.get_temps_dispo();
+		assert temps_dispo == 25;
 		
+		//Test de usine
+		Usine usine = new Usine(50);
 		
+		int balance = usine.get_balance();
+		assert balance == 50;
+		
+		int depot = 10;
+		usine.depose_argent(depot);
+		
+		balance = usine.get_balance();
+		assert balance == 60;
+				
+		usine.effectueTache(tache, travailleur);
+		
+		temps_dispo = travailleur.get_temps_dispo();
+		assert temps_dispo == 23;
+		
+		salaire_percu = travailleur.get_salaire_percu();
+		assert salaire_percu == 180;
+		
+		balance = usine.get_balance();
+		assert balance == 80;
+		
+	//	boolean rentabilite = usine.est_rentable(tache,travailleur);
+	//	assert rentabilite == true;
+		
+		//TEST BIS
+		/*Travailleur idiot = new Travailleur(-35,15);
+		int temps_dispo = travailleur.get_temps_dispo();
+		assert temps_dispo == -35;
+		*/
 		
 	}
 }
